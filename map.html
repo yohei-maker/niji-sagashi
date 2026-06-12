@@ -21,10 +21,14 @@
     z-index: 1000;
   }
   header h1 { font-size: 16px; font-weight: 700; }
-  header a {
-    color: #fff; text-decoration: none; font-size: 13px;
+  header .hbtns { display: flex; gap: 8px; }
+  header a, header button {
+    color: #fff; text-decoration: none; font-size: 13px; font-family: inherit;
     background: rgba(255,255,255,.15); padding: 6px 12px; border-radius: 12px;
+    border: none; cursor: pointer;
   }
+  header button.on { background: #ffd166; color: #1a2a4a; font-weight: 700; }
+  .leaflet-popup-content a { color: #ffd166; text-decoration: none; font-weight: 700; }
   #map { flex: 1; background: #0e1830; }
   .statusbar {
     padding: 8px 14px; font-size: 12px; color: rgba(255,255,255,.75);
@@ -60,7 +64,10 @@
 <body>
 <header>
   <h1>🗾 全国虹マップ</h1>
-  <a href="index.html">← 現在地モード</a>
+  <div class="hbtns">
+    <button id="satBtn" onclick="toggleSat()">🛰 衛星</button>
+    <a href="index.html">← 現在地</a>
+  </div>
 </header>
 <div id="map"></div>
 <div class="statusbar" id="status">全国の空を解析中… 🌈</div>
@@ -250,13 +257,17 @@ function render(pts) {
       color: c, weight: pt.score >= 40 ? 2.5 : 1,
       fillColor: c, fillOpacity: pt.score >= 1 ? .85 : .45
     });
+    const xQuery = encodeURIComponent("虹 " + pt.name);
     m.bindPopup(
       `<b>${pt.score >= 60 ? "🌈 " : ""}${pt.name}</b> — スコア ${pt.score}<br>` +
       (pt.score > 0
         ? `見る方角: <b>${dirName(pt.anti)}</b>（太陽を背に）<br>`
         : `${pt.reason}<br>`) +
       `降水 ${pt.precip.toFixed(1)}mm / 日射 ${Math.round(pt.radiation)}W/m² / 雲 ${pt.cloud}%<br>` +
-      `太陽高度 ${pt.sunAlt.toFixed(0)}度`
+      `太陽高度 ${pt.sunAlt.toFixed(0)}度<br>` +
+      `<div style="margin-top:7px;border-top:1px solid rgba(255,255,255,.2);padding-top:7px;line-height:2">` +
+      `<a href="https://x.com/search?q=${xQuery}&f=live" target="_blank" rel="noopener">𝕏 「虹 ${pt.name}」の投稿を見る</a><br>` +
+      `<a href="https://www.windy.com/-Webcams/webcams?${pt.lat},${pt.lon},10" target="_blank" rel="noopener">📷 周辺のライブカメラ</a></div>`
     );
     m.addTo(layer);
     if (!best || pt.score > best.score) best = pt;
@@ -286,6 +297,43 @@ async function refresh() {
     }
   } catch (e) {
     status.textContent = "⚠️ データ取得に失敗しました: " + e.message;
+  }
+}
+
+/* ===== ひまわり衛星画像オーバーレイ（気象庁・無料） ===== */
+let satLayer = null, satOn = false;
+
+async function toggleSat() {
+  const btn = document.getElementById("satBtn");
+  if (satOn) {
+    if (satLayer) map.removeLayer(satLayer);
+    satOn = false;
+    btn.classList.remove("on");
+    return;
+  }
+  try {
+    btn.textContent = "🛰 取得中…";
+    const res = await fetch("https://www.jma.go.jp/bosai/himawari/data/satimg/targetTimes_fd.json");
+    const times = await res.json();
+    const latest = times[times.length - 1];
+    // 日中はトゥルーカラー、夜は赤外（雲が見える）を自動選択
+    const tokyoSun = solarPosition(35.69, 139.69, new Date());
+    const band = tokyoSun.alt > -5 ? "REP/ETC" : "B13/TBB";
+    const url = `https://www.jma.go.jp/bosai/himawari/data/satimg/${latest.basetime}/fd/${latest.validtime}/${band}/{z}/{x}/{y}.jpg`;
+    if (satLayer) map.removeLayer(satLayer);
+    satLayer = L.tileLayer(url, {
+      attribution: "衛星画像: 気象庁（ひまわり）",
+      opacity: 0.62, maxNativeZoom: 5, maxZoom: 12
+    }).addTo(map);
+    satOn = true;
+    btn.classList.add("on");
+    // 観測時刻（UTC→JST）をボタンに表示
+    const b = latest.basetime;
+    const utc = new Date(Date.UTC(+b.slice(0,4), +b.slice(4,6)-1, +b.slice(6,8), +b.slice(8,10), +b.slice(10,12)));
+    btn.textContent = "🛰 " + utc.toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" }) + " 観測";
+  } catch (e) {
+    btn.textContent = "🛰 衛星";
+    alert("衛星画像の取得に失敗しました: " + e.message);
   }
 }
 
