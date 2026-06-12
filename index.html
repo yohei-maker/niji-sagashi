@@ -80,13 +80,15 @@
   .empty { font-size: 13px; color: var(--ink-dim); text-align:center; padding: 12px 0; line-height: 1.7; }
 
   .foot { text-align:center; font-size: 11px; color: var(--ink-dim); margin-top: 6px; line-height: 1.8; }
-  button.reload {
+  .reload {
     display:block; width:100%; padding: 14px; margin-top: 4px;
     border: 1px solid var(--card-line); border-radius: 16px;
     background: rgba(255,255,255,.14); color: var(--ink);
     font-size: 15px; font-weight: 700; cursor: pointer;
+    text-align: center; text-decoration: none; box-sizing: border-box;
+    font-family: inherit;
   }
-  button.reload:active { background: rgba(255,255,255,.26); }
+  .reload:active { background: rgba(255,255,255,.26); }
   .loading { text-align:center; padding: 60px 0; font-size: 14px; color: var(--ink-dim); }
   .spin { display:inline-block; animation: spin 1.6s linear infinite; font-size: 28px; }
   @keyframes spin { to { transform: rotate(360deg); } }
@@ -161,7 +163,7 @@
     </div>
 
     <button class="reload" onclick="run()">🔄 もう一度空をチェック</button>
-    <button class="reload" style="margin-top:10px" onclick="location.href='map.html'">🗾 全国の虹マップを見る</button>
+    <a class="reload" style="margin-top:10px" href="map.html">🗾 全国の虹マップを見る</a>
     <div class="foot" id="foot"></div>
   </div>
 </div>
