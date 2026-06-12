@@ -238,9 +238,25 @@ async function fetchWeather(points) {
     + "&minutely_15=precipitation,shortwave_radiation"
     + "&hourly=cloud_cover,precipitation&forecast_days=1&timezone=auto";
   const res = await fetch(url);
-  if (!res.ok) throw new Error("気象API エラー: " + res.status);
+  if (!res.ok) throw new Error(res.status === 429 ? "RATE_LIMIT" : "気象API エラー: " + res.status);
   const json = await res.json();
   return Array.isArray(json) ? json : [json];
+}
+
+/* APIレート制限対策: 取得結果を保存して開き直し時に再利用 */
+const CACHE_KEY = "niji_here_cache_v1";
+
+function saveCache(loc, data) {
+  try { localStorage.setItem(CACHE_KEY, JSON.stringify({ t: Date.now(), lat: loc.lat, lon: loc.lon, data })); } catch (e) {}
+}
+
+function loadCache(loc, maxAgeMin) {
+  try {
+    const c = JSON.parse(localStorage.getItem(CACHE_KEY));
+    if (c && Date.now() - c.t < maxAgeMin * 60 * 1000
+        && Math.abs(c.lat - loc.lat) < 0.05 && Math.abs(c.lon - loc.lon) < 0.05) return c;
+  } catch (e) {}
+  return null;
 }
 
 function valueAtNow(block, key) {
@@ -327,7 +343,29 @@ async function run() {
     const anti = (sun.az + 180) % 360;
     const pts = [[loc.lat, loc.lon], offsetPoint(loc.lat, loc.lon, anti, 5),
                  offsetPoint(loc.lat, loc.lon, anti, 15), offsetPoint(loc.lat, loc.lon, anti, 30)];
-    const data = await fetchWeather(pts);
+    let data, cacheNote = "";
+    const fresh = loadCache(loc, 5);
+    if (fresh) {
+      data = fresh.data;  // 5分以内に取得済みならAPIを叩かない
+    } else {
+      try {
+        data = await fetchWeather(pts);
+        saveCache(loc, data);
+      } catch (e) {
+        const old = loadCache(loc, 60);
+        if (!old) {
+          if (e.message === "RATE_LIMIT") {
+            document.getElementById("loading").innerHTML =
+              "⏳ アクセスが集中しています<br><br>60秒後に自動で再試行します…";
+            setTimeout(run, 60 * 1000);
+            return;
+          }
+          throw e;
+        }
+        data = old.data;
+        cacheNote = "・保存データ表示中";
+      }
+    }
     const here = data[0], dirData = data.slice(1);
     const r = judge(loc.lat, loc.lon, here, dirData);
 
@@ -363,7 +401,7 @@ async function run() {
            <div class="d">${dirName(s.anti)}</div></div>`).join("");
 
     document.getElementById("foot").textContent =
-      `📍 ${loc.src} (${loc.lat.toFixed(2)}, ${loc.lon.toFixed(2)}) ・ ${new Date().toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"})} 更新 ・ データ: Open-Meteo`;
+      `📍 ${loc.src} (${loc.lat.toFixed(2)}, ${loc.lon.toFixed(2)}) ・ ${new Date().toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"})} 更新${cacheNote} ・ データ: Open-Meteo`;
 
     document.getElementById("loading").classList.add("hidden");
     document.getElementById("main").classList.remove("hidden");

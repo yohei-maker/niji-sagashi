@@ -167,16 +167,34 @@ function distBearing(lat1, lon1, lat2, lon2) {
   return { dist, brg };
 }
 
-/* ===== 気象データ一括取得（Open-Meteo: 全地点を1リクエスト） ===== */
+/* ===== 気象データ一括取得（Open-Meteo: 全地点を1リクエスト） =====
+   APIの無料枠を守るため、結果はlocalStorageに保存して再利用する。
+   - 8分以内のキャッシュがあればAPIを叩かない（開き直し対策）
+   - 429等で失敗したら60分以内のキャッシュで表示を継続 */
+const CACHE_KEY = "niji_map_cache_v1";
+
+function readCache(maxAgeMin) {
+  try {
+    const c = JSON.parse(localStorage.getItem(CACHE_KEY));
+    if (c && Date.now() - c.t < maxAgeMin * 60 * 1000) return c;
+  } catch (e) {}
+  return null;
+}
+
 async function fetchAll() {
+  const fresh = readCache(8);
+  if (fresh) return { weather: fresh.w, cachedAt: fresh.t, fromCache: true };
+
   const lats = POINTS.map(p => p[1].toFixed(2)).join(",");
   const lons = POINTS.map(p => p[2].toFixed(2)).join(",");
   const url = "https://api.open-meteo.com/v1/forecast?latitude=" + lats + "&longitude=" + lons
     + "&current=precipitation,shortwave_radiation,cloud_cover&timezone=Asia%2FTokyo";
   const res = await fetch(url);
-  if (!res.ok) throw new Error("気象API エラー: " + res.status);
+  if (!res.ok) throw new Error(res.status === 429 ? "RATE_LIMIT" : "気象API エラー: " + res.status);
   const json = await res.json();
-  return Array.isArray(json) ? json : [json];
+  const weather = Array.isArray(json) ? json : [json];
+  try { localStorage.setItem(CACHE_KEY, JSON.stringify({ t: Date.now(), w: weather })); } catch (e) {}
+  return { weather, cachedAt: Date.now(), fromCache: false };
 }
 
 /* ===== 各地点の虹スコア ===== */
@@ -275,28 +293,48 @@ function render(pts) {
   return best;
 }
 
+let retryTimer = null;
+
 async function refresh() {
   const status = document.getElementById("status");
   status.textContent = "全国の空を解析中… 🌈";
+  if (retryTimer) { clearTimeout(retryTimer); retryTimer = null; }
+  let result;
   try {
-    const weather = await fetchAll();
-    const pts = scoreAll(weather);
+    result = await fetchAll();
+  } catch (e) {
+    // 失敗時: 60分以内のキャッシュがあればそれで表示を継続
+    const old = readCache(60);
+    if (old) {
+      result = { weather: old.w, cachedAt: old.t, fromCache: true };
+    } else {
+      const isRate = e.message === "RATE_LIMIT";
+      status.textContent = isRate
+        ? "⏳ アクセスが集中しています。60秒後に自動で再試行します…"
+        : "⚠️ データ取得に失敗しました: " + e.message + "（60秒後に再試行）";
+      retryTimer = setTimeout(refresh, 60 * 1000);
+      return;
+    }
+  }
+  try {
+    const pts = scoreAll(result.weather);
     const best = render(pts);
     const hot = pts.filter(p => p.score >= 60).length;
     const maybe = pts.filter(p => p.score >= 40 && p.score < 60).length;
     const allNight = pts.every(p => p.sunAlt <= 0);
-    const t = new Date().toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" });
+    const t = new Date(result.cachedAt).toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" });
+    const tag = `${t} 取得${result.fromCache ? "・保存データ" : ""}・15分ごと自動更新`;
     if (allNight) {
-      status.textContent = `🌙 いまは日本全国が夜。虹は明日のお楽しみ（${t} 更新）`;
+      status.textContent = `🌙 いまは日本全国が夜。虹は明日のお楽しみ（${tag}）`;
     } else if (hot > 0) {
-      status.innerHTML = `🌈 <b>${hot}地点で虹チャンス発生中！</b> 最高: ${best.name} ${best.score}点（${t} 更新・10分ごと自動更新）`;
+      status.innerHTML = `🌈 <b>${hot}地点で虹チャンス発生中！</b> 最高: ${best.name} ${best.score}点（${tag}）`;
     } else if (maybe > 0) {
-      status.textContent = `🌤 ${maybe}地点で「もしかすると」レベル。最高: ${best.name} ${best.score}点（${t} 更新・10分ごと自動更新）`;
+      status.textContent = `🌤 ${maybe}地点で「もしかすると」レベル。最高: ${best.name} ${best.score}点（${tag}）`;
     } else {
-      status.textContent = `☁️ いま虹の条件が揃っている地点はありません（${t} 更新・10分ごと自動更新）`;
+      status.textContent = `☁️ いま虹の条件が揃っている地点はありません（${tag}）`;
     }
   } catch (e) {
-    status.textContent = "⚠️ データ取得に失敗しました: " + e.message;
+    status.textContent = "⚠️ 表示処理でエラー: " + e.message;
   }
 }
 
@@ -337,8 +375,16 @@ async function toggleSat() {
   }
 }
 
-refresh();
-setInterval(refresh, 10 * 60 * 1000);
+/* 自動更新: タブが画面に見えている時だけ実行（隠れたタブでAPI枠を浪費しない） */
+let lastRefresh = 0;
+async function refreshTracked() { lastRefresh = Date.now(); await refresh(); }
+
+refreshTracked();
+setInterval(() => { if (!document.hidden) refreshTracked(); }, 15 * 60 * 1000);
+document.addEventListener("visibilitychange", () => {
+  // タブに戻ってきた時、15分以上経っていれば更新
+  if (!document.hidden && Date.now() - lastRefresh > 15 * 60 * 1000) refreshTracked();
+});
 </script>
 </body>
 </html>
