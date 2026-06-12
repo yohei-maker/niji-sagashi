@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#1a2a4a">
+<title>🗾 全国虹マップ — 虹さがし</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html, body { height: 100%; }
+  body {
+    font-family: -apple-system, "Hiragino Sans", sans-serif;
+    background: #1a2a4a; color: #fff;
+    display: flex; flex-direction: column;
+  }
+  header {
+    padding: 10px 14px;
+    display: flex; align-items: center; justify-content: space-between;
+    background: linear-gradient(90deg, #1a2a4a, #2a4a7a);
+    z-index: 1000;
+  }
+  header h1 { font-size: 16px; font-weight: 700; }
+  header a {
+    color: #fff; text-decoration: none; font-size: 13px;
+    background: rgba(255,255,255,.15); padding: 6px 12px; border-radius: 12px;
+  }
+  #map { flex: 1; background: #0e1830; }
+  .statusbar {
+    padding: 8px 14px; font-size: 12px; color: rgba(255,255,255,.75);
+    background: #1a2a4a; text-align: center; line-height: 1.5;
+  }
+  /* 凡例 */
+  .legend {
+    position: absolute; bottom: 24px; left: 12px; z-index: 1000;
+    background: rgba(20,32,60,.88); border: 1px solid rgba(255,255,255,.2);
+    border-radius: 12px; padding: 10px 12px; font-size: 11px; line-height: 1.9;
+    white-space: nowrap;
+    backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+  }
+  .legend .dot { display:inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; vertical-align: -1px; }
+  /* 虹チャンス地点のパルス */
+  .pulse { animation: pulse 1.8s ease-out infinite; }
+  @keyframes pulse {
+    0% { box-shadow: 0 0 0 0 rgba(255, 209, 102, .7); }
+    100% { box-shadow: 0 0 0 18px rgba(255, 209, 102, 0); }
+  }
+  .leaflet-popup-content-wrapper { background: #21345e; color: #fff; border-radius: 12px; }
+  .leaflet-popup-tip { background: #21345e; }
+  .leaflet-popup-content { font-size: 12px; line-height: 1.7; margin: 10px 14px; }
+  .leaflet-popup-content b { font-size: 14px; }
+  .night-overlay {
+    position: absolute; inset: 0; z-index: 999; display: flex;
+    align-items: center; justify-content: center; pointer-events: none;
+    background: rgba(10,16,34,.55); color: #fff; font-size: 15px; font-weight: 700;
+    text-shadow: 0 2px 8px #000;
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>🗾 全国虹マップ</h1>
+  <a href="index.html">← 現在地モード</a>
+</header>
+<div id="map"></div>
+<div class="statusbar" id="status">全国の空を解析中… 🌈</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+"use strict";
+
+/* ===== 全国の観測地点（約140地点） ===== */
+const POINTS = [
+["稚内",45.42,141.67],["旭川",43.77,142.36],["網走",44.02,144.27],["釧路",42.98,144.38],
+["帯広",42.92,143.20],["札幌",43.06,141.35],["小樽",43.19,140.99],["室蘭",42.32,140.97],
+["函館",41.77,140.73],["江差",41.87,140.13],["根室",43.33,145.58],["留萌",43.94,141.64],
+["青森",40.82,140.74],["八戸",40.51,141.49],["弘前",40.60,140.46],["むつ",41.29,141.18],
+["盛岡",39.70,141.15],["宮古",39.64,141.95],["一関",38.93,141.13],["秋田",39.72,140.10],
+["大館",40.27,140.56],["横手",39.31,140.55],["仙台",38.27,140.87],["石巻",38.43,141.30],
+["山形",38.26,140.34],["酒田",38.91,139.84],["米沢",37.92,140.12],["福島",37.76,140.47],
+["郡山",37.40,140.36],["いわき",37.05,140.89],["会津若松",37.49,139.93],
+["水戸",36.37,140.47],["つくば",36.08,140.08],["宇都宮",36.57,139.88],["日光",36.75,139.60],
+["前橋",36.39,139.06],["みなかみ",36.68,138.97],["さいたま",35.86,139.65],["秩父",35.99,139.08],
+["千葉",35.61,140.12],["銚子",35.73,140.83],["館山",34.98,139.87],["東京",35.69,139.69],
+["八王子",35.67,139.32],["大島",34.75,139.36],["八丈島",33.11,139.79],
+["横浜",35.44,139.64],["小田原",35.26,139.15],["新潟",37.90,139.02],["長岡",37.45,138.85],
+["上越",37.15,138.24],["佐渡",38.02,138.37],["富山",36.70,137.21],["金沢",36.59,136.63],
+["輪島",37.39,136.90],["福井",36.07,136.22],["敦賀",35.65,136.06],["甲府",35.66,138.57],
+["河口湖",35.50,138.77],["長野",36.65,138.18],["松本",36.24,137.97],["軽井沢",36.34,138.63],
+["飯田",35.51,137.82],["岐阜",35.42,136.76],["高山",36.14,137.25],["静岡",34.98,138.38],
+["浜松",34.71,137.73],["沼津",35.10,138.86],["名古屋",35.18,136.91],["豊橋",34.77,137.39],
+["四日市",34.97,136.62],["津",34.73,136.51],["尾鷲",34.07,136.19],["伊勢",34.49,136.71],
+["大津",35.00,135.87],["彦根",35.27,136.25],["京都",35.01,135.77],["舞鶴",35.45,135.33],
+["大阪",34.69,135.50],["堺",34.57,135.48],["神戸",34.69,135.20],["姫路",34.82,134.69],
+["豊岡",35.54,134.82],["奈良",34.69,135.83],["和歌山",34.23,135.17],["新宮",33.72,135.99],
+["鳥取",35.50,134.24],["米子",35.43,133.33],["松江",35.47,133.05],["浜田",34.90,132.08],
+["隠岐",36.20,133.33],["岡山",34.66,133.92],["津山",35.07,134.00],["広島",34.40,132.46],
+["福山",34.49,133.36],["呉",34.25,132.57],["山口",34.19,131.47],["下関",33.96,130.94],
+["萩",34.41,131.40],["徳島",34.07,134.55],["高松",34.34,134.05],["松山",33.84,132.77],
+["宇和島",33.22,132.56],["高知",33.56,133.53],["室戸",33.29,134.15],["四万十",33.00,132.93],
+["福岡",33.61,130.42],["北九州",33.88,130.88],["久留米",33.32,130.51],["佐賀",33.25,130.30],
+["長崎",32.74,129.87],["佐世保",33.18,129.72],["対馬",34.20,129.29],["五島",32.70,128.84],
+["熊本",32.79,130.74],["阿蘇",32.95,131.12],["天草",32.46,130.19],["大分",33.24,131.61],
+["別府",33.28,131.49],["日田",33.32,130.94],["宮崎",31.91,131.42],["延岡",32.58,131.66],
+["都城",31.72,131.06],["鹿児島",31.56,130.56],["鹿屋",31.38,130.85],["奄美",28.38,129.49],
+["屋久島",30.39,130.66],["那覇",26.21,127.68],["名護",26.59,127.98],["宮古島",24.79,125.28],
+["石垣",24.34,124.16],["与那国",24.47,123.00]
+];
+
+/* ===== 太陽位置（index.htmlと同一のNOAA式） ===== */
+function solarPosition(lat, lon, date) {
+  const rad = Math.PI / 180;
+  let y = date.getUTCFullYear(), m = date.getUTCMonth() + 1;
+  const d = date.getUTCDate() + (date.getUTCHours() + date.getUTCMinutes()/60 + date.getUTCSeconds()/3600) / 24;
+  if (m <= 2) { y -= 1; m += 12; }
+  const a = Math.floor(y / 100), b = 2 - a + Math.floor(a / 4);
+  const jd = Math.floor(365.25 * (y + 4716)) + Math.floor(30.6001 * (m + 1)) + d + b - 1524.5;
+  const t = (jd - 2451545.0) / 36525.0;
+  const l0 = (280.46646 + t * (36000.76983 + 0.0003032 * t)) % 360;
+  const ma = 357.52911 + t * (35999.05029 - 0.0001537 * t);
+  const mr = ma * rad;
+  const c = Math.sin(mr) * (1.914602 - t * (0.004817 + 0.000014 * t))
+          + Math.sin(2*mr) * (0.019993 - 0.000101 * t) + Math.sin(3*mr) * 0.000289;
+  const omega = 125.04 - 1934.136 * t;
+  const appLong = l0 + c - 0.00569 - 0.00478 * Math.sin(omega * rad);
+  const e0 = 23 + (26 + (21.448 - t * (46.815 + t * (0.00059 - t * 0.001813))) / 60) / 60;
+  const eps = e0 + 0.00256 * Math.cos(omega * rad);
+  const decl = Math.asin(Math.sin(eps*rad) * Math.sin(appLong*rad)) / rad;
+  const varY = Math.tan((eps/2)*rad) ** 2;
+  const ecc = 0.016708634 - t * (0.000042037 + 0.0000001267 * t);
+  const l0r = l0 * rad;
+  const eqtime = 4 / rad * (varY*Math.sin(2*l0r) - 2*ecc*Math.sin(mr)
+    + 4*ecc*varY*Math.sin(mr)*Math.cos(2*l0r) - 0.5*varY*varY*Math.sin(4*l0r) - 1.25*ecc*ecc*Math.sin(2*mr));
+  const minutes = date.getUTCHours()*60 + date.getUTCMinutes() + date.getUTCSeconds()/60;
+  const tst = (((minutes + eqtime + 4*lon) % 1440) + 1440) % 1440;
+  let ha = tst/4 - 180;
+  if (ha < -180) ha += 360;
+  const latr = lat*rad, declr = decl*rad, har = ha*rad;
+  const sinAlt = Math.sin(latr)*Math.sin(declr) + Math.cos(latr)*Math.cos(declr)*Math.cos(har);
+  const alt = Math.asin(Math.max(-1, Math.min(1, sinAlt))) / rad;
+  const cosAz = (Math.sin(declr) - Math.sin(latr)*sinAlt) / (Math.cos(latr)*Math.cos(alt*rad));
+  let az = Math.acos(Math.max(-1, Math.min(1, cosAz))) / rad;
+  if (ha > 0) az = 360 - az;
+  return { alt, az };
+}
+
+const DIRS = ["北","北北東","北東","東北東","東","東南東","南東","南南東","南","南南西","南西","西南西","西","西北西","北西","北北西"];
+const dirName = deg => DIRS[Math.floor(((deg + 11.25) % 360) / 22.5)];
+const clearsky = alt => alt <= 0 ? 0 : 1000 * Math.sin(alt * Math.PI/180) * 0.75;
+
+/* 2地点間の距離(km)と方位(度) */
+function distBearing(lat1, lon1, lat2, lon2) {
+  const rad = Math.PI/180, R = 6371;
+  const dLat = (lat2-lat1)*rad, dLon = (lon2-lon1)*rad;
+  const a = Math.sin(dLat/2)**2 + Math.cos(lat1*rad)*Math.cos(lat2*rad)*Math.sin(dLon/2)**2;
+  const dist = 2*R*Math.asin(Math.sqrt(a));
+  const yv = Math.sin(dLon)*Math.cos(lat2*rad);
+  const xv = Math.cos(lat1*rad)*Math.sin(lat2*rad) - Math.sin(lat1*rad)*Math.cos(lat2*rad)*Math.cos(dLon);
+  const brg = (Math.atan2(yv, xv)/rad + 360) % 360;
+  return { dist, brg };
+}
+
+/* ===== 気象データ一括取得（Open-Meteo: 全地点を1リクエスト） ===== */
+async function fetchAll() {
+  const lats = POINTS.map(p => p[1].toFixed(2)).join(",");
+  const lons = POINTS.map(p => p[2].toFixed(2)).join(",");
+  const url = "https://api.open-meteo.com/v1/forecast?latitude=" + lats + "&longitude=" + lons
+    + "&current=precipitation,shortwave_radiation,cloud_cover&timezone=Asia%2FTokyo";
+  const res = await fetch(url);
+  if (!res.ok) throw new Error("気象API エラー: " + res.status);
+  const json = await res.json();
+  return Array.isArray(json) ? json : [json];
+}
+
+/* ===== 各地点の虹スコア ===== */
+function scoreAll(weather) {
+  const now = new Date();
+  const pts = POINTS.map((p, i) => {
+    const cur = weather[i].current;
+    const { alt, az } = solarPosition(p[1], p[2], now);
+    return {
+      name: p[0], lat: p[1], lon: p[2],
+      precip: cur.precipitation ?? 0,
+      radiation: cur.shortwave_radiation ?? 0,
+      cloud: cur.cloud_cover ?? 100,
+      sunAlt: alt, anti: (az + 180) % 360,
+      score: 0, reason: ""
+    };
+  });
+
+  for (const pt of pts) {
+    if (pt.sunAlt <= 0) { pt.reason = "夜"; continue; }
+    if (pt.sunAlt > 42) { pt.reason = "太陽が高すぎ"; continue; }
+    const altFactor = 1.0 - (pt.sunAlt / 42) * 0.3;
+    const sunFactor = Math.min(pt.radiation / Math.max(clearsky(pt.sunAlt) * 0.5, 1), 1.0);
+    if (sunFactor < 0.3) { pt.reason = "日差し不足"; continue; }
+
+    // 雨: 自地点 + 対日点方向±45度・90km以内の地点の降水
+    let rain = pt.precip;
+    for (const other of pts) {
+      if (other === pt) continue;
+      const { dist, brg } = distBearing(pt.lat, pt.lon, other.lat, other.lon);
+      if (dist > 90) continue;
+      let dAz = Math.abs(brg - pt.anti); if (dAz > 180) dAz = 360 - dAz;
+      if (dAz <= 45) rain = Math.max(rain, other.precip * (1 - dist / 120));
+    }
+    if (rain <= 0) { pt.reason = "雨なし"; continue; }
+    const rainFactor = Math.min(rain / 2.0, 1.0);
+    pt.score = Math.min(Math.round(100 * altFactor * rainFactor * sunFactor), 100);
+    pt.reason = "条件成立";
+  }
+  return pts;
+}
+
+/* ===== 地図描画 ===== */
+const map = L.map("map", { zoomControl: false }).setView([37.5, 137.0], 5);
+L.control.zoom({ position: "bottomright" }).addTo(map);
+L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
+  attribution: '&copy; OpenStreetMap &copy; CARTO', maxZoom: 12
+}).addTo(map);
+
+const legend = L.control({ position: "bottomleft" });
+legend.onAdd = () => {
+  const div = L.DomUtil.create("div", "legend");
+  div.innerHTML =
+    '<span class="dot" style="background:#ffd166"></span>虹チャンス！(60+)<br>' +
+    '<span class="dot" style="background:#a78bfa"></span>もしかすると (40-59)<br>' +
+    '<span class="dot" style="background:#5b8dd6"></span>条件一部あり (1-39)<br>' +
+    '<span class="dot" style="background:#3a4a6a"></span>条件なし';
+  return div;
+};
+legend.addTo(map);
+
+let layer = L.layerGroup().addTo(map);
+
+function color(s) {
+  if (s >= 60) return "#ffd166";
+  if (s >= 40) return "#a78bfa";
+  if (s >= 1)  return "#5b8dd6";
+  return "#3a4a6a";
+}
+
+function render(pts) {
+  layer.clearLayers();
+  let best = null;
+  for (const pt of pts.slice().sort((a,b) => a.score - b.score)) {
+    const c = color(pt.score);
+    const m = L.circleMarker([pt.lat, pt.lon], {
+      radius: pt.score >= 60 ? 11 : pt.score >= 40 ? 8 : 5,
+      color: c, weight: pt.score >= 40 ? 2.5 : 1,
+      fillColor: c, fillOpacity: pt.score >= 1 ? .85 : .45
+    });
+    m.bindPopup(
+      `<b>${pt.score >= 60 ? "🌈 " : ""}${pt.name}</b> — スコア ${pt.score}<br>` +
+      (pt.score > 0
+        ? `見る方角: <b>${dirName(pt.anti)}</b>（太陽を背に）<br>`
+        : `${pt.reason}<br>`) +
+      `降水 ${pt.precip.toFixed(1)}mm / 日射 ${Math.round(pt.radiation)}W/m² / 雲 ${pt.cloud}%<br>` +
+      `太陽高度 ${pt.sunAlt.toFixed(0)}度`
+    );
+    m.addTo(layer);
+    if (!best || pt.score > best.score) best = pt;
+  }
+  return best;
+}
+
+async function refresh() {
+  const status = document.getElementById("status");
+  status.textContent = "全国の空を解析中… 🌈";
+  try {
+    const weather = await fetchAll();
+    const pts = scoreAll(weather);
+    const best = render(pts);
+    const hot = pts.filter(p => p.score >= 60).length;
+    const maybe = pts.filter(p => p.score >= 40 && p.score < 60).length;
+    const allNight = pts.every(p => p.sunAlt <= 0);
+    const t = new Date().toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" });
+    if (allNight) {
+      status.textContent = `🌙 いまは日本全国が夜。虹は明日のお楽しみ（${t} 更新）`;
+    } else if (hot > 0) {
+      status.innerHTML = `🌈 <b>${hot}地点で虹チャンス発生中！</b> 最高: ${best.name} ${best.score}点（${t} 更新・10分ごと自動更新）`;
+    } else if (maybe > 0) {
+      status.textContent = `🌤 ${maybe}地点で「もしかすると」レベル。最高: ${best.name} ${best.score}点（${t} 更新・10分ごと自動更新）`;
+    } else {
+      status.textContent = `☁️ いま虹の条件が揃っている地点はありません（${t} 更新・10分ごと自動更新）`;
+    }
+  } catch (e) {
+    status.textContent = "⚠️ データ取得に失敗しました: " + e.message;
+  }
+}
+
+refresh();
+setInterval(refresh, 10 * 60 * 1000);
+</script>
+</body>
+</html>
