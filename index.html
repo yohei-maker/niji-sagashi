@@ -130,7 +130,7 @@
       <div class="fortune-msg" id="fortuneMsg"></div>
       <div class="fortune-meta">
         <span>🧭 ラッキー方向 <b id="fortuneDir">—</b></span>
-        <span>🎨 ラッキーカラー <b id="fortuneColor">—</b></span>
+        <span>🕐 開運の時刻 <b id="fortuneTime">—</b></span>
       </div>
     </div>
 
@@ -384,7 +384,7 @@ function sunsetScore(here) {
 }
 
 /* ===== 今日の空のお告げ ===== */
-function skyFortune(r, sunset) {
+function skyFortune(r, sunset, slots) {
   const rainbowS = r.score, sunsetS = sunset ? sunset.score : 0;
   const best = Math.max(rainbowS, sunsetS);
   const usesRainbow = rainbowS >= sunsetS;
@@ -406,11 +406,12 @@ function skyFortune(r, sunset) {
     message = "今日は穏やかな空模様。次のチャンスに向けて、心の準備をしておきましょう。";
   }
 
-  const luckyColors = ["金色", "紫", "水色", "オレンジ", "ピンク", "エメラルド", "ラベンダー", "深紅"];
-  const seed = new Date().toDateString().split("").reduce((a, c) => a + c.charCodeAt(0), 0) + Math.round(best);
-  const color = luckyColors[seed % luckyColors.length];
+  // 開運の時刻: 今日の虹チャンス時間帯があればその時刻、なければ夕暮れ時
+  let time = "—";
+  if (slots && slots.length > 0) time = slots[0].time;
+  else if (sunset) time = sunset.timeStr;
 
-  return { level, title, message, dir, color };
+  return { level, title, message, dir, time };
 }
 
 /* ===== 今日のチャンス時間帯 ===== */
@@ -507,14 +508,6 @@ async function run() {
 
     // 夕焼けスコア
     const sunset = sunsetScore(here);
-
-    // 今日の空のお告げ（虹・夕焼けスコアを合わせて判定）
-    const fortune = skyFortune(r, sunset);
-    document.getElementById("fortuneTitle").textContent = fortune.title;
-    document.getElementById("fortuneMsg").textContent = fortune.message;
-    document.getElementById("fortuneDir").textContent = fortune.dir;
-    document.getElementById("fortuneColor").textContent = fortune.color;
-
     const sunsetCard = document.getElementById("sunsetCard");
     if (sunset) {
       sunsetCard.style.display = "";
@@ -535,6 +528,13 @@ async function run() {
           `<div class="slot"><div class="t">${s.time}</div>
            <div class="info">${s.good ? "◎" : "△ 雲多め"} 降水${s.precip.toFixed(1)}mm / 雲量${s.cloud}% / 太陽高度${s.alt.toFixed(0)}度</div>
            <div class="d">${dirName(s.anti)}</div></div>`).join("");
+
+    // 今日の空のお告げ（虹・夕焼けスコア＋チャンス時刻を合わせて判定）
+    const fortune = skyFortune(r, sunset, slots);
+    document.getElementById("fortuneTitle").textContent = fortune.title;
+    document.getElementById("fortuneMsg").textContent = fortune.message;
+    document.getElementById("fortuneDir").textContent = fortune.dir;
+    document.getElementById("fortuneTime").textContent = fortune.time;
 
     document.getElementById("foot").textContent =
       `📍 ${loc.src} (${loc.lat.toFixed(2)}, ${loc.lon.toFixed(2)}) ・ ${new Date().toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"})} 更新${cacheNote} ・ データ: Open-Meteo`;
