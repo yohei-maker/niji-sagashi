@@ -79,6 +79,14 @@
   .slot .d { font-size: 14px; font-weight: 700; }
   .empty { font-size: 13px; color: var(--ink-dim); text-align:center; padding: 12px 0; line-height: 1.7; }
 
+  /* 夕焼けスコア */
+  .sunset-row { display:flex; align-items:center; gap: 16px; }
+  .sunset-score { font-size: 40px; font-weight: 800; flex: none; width: 64px; text-align:center; }
+  .sunset-info { flex:1; }
+  .sunset-verdict { font-size: 14px; font-weight: 700; }
+  .sunset-reason { font-size: 11px; color: var(--ink-dim); margin-top: 3px; line-height: 1.5; }
+  .sunset-time { font-size: 11px; color: var(--ink-dim); margin-top: 5px; }
+
   .foot { text-align:center; font-size: 11px; color: var(--ink-dim); margin-top: 6px; line-height: 1.8; }
   .reload {
     display:block; width:100%; padding: 14px; margin-top: 4px;
@@ -154,6 +162,18 @@
         <div class="cell"><div class="k">🌧 虹方向の降水</div><div class="v" id="rainDir">—<small> mm/h</small></div></div>
         <div class="cell"><div class="k">💡 日射量</div><div class="v" id="rad">—<small> W/m²</small></div></div>
         <div class="cell"><div class="k">☁️ 雲量</div><div class="v" id="cloud">—<small> %</small></div></div>
+      </div>
+    </div>
+
+    <div class="card" id="sunsetCard" style="display:none">
+      <h2>🌇 今日の夕焼けスコア</h2>
+      <div class="sunset-row">
+        <div class="sunset-score" id="sunsetScore">—</div>
+        <div class="sunset-info">
+          <div class="sunset-verdict" id="sunsetVerdict">—</div>
+          <div class="sunset-reason" id="sunsetReason"></div>
+          <div class="sunset-time" id="sunsetTime"></div>
+        </div>
       </div>
     </div>
 
@@ -236,7 +256,8 @@ async function fetchWeather(points) {
   const lons = points.map(p => p[1].toFixed(4)).join(",");
   const url = "https://api.open-meteo.com/v1/forecast?latitude=" + lats + "&longitude=" + lons
     + "&minutely_15=precipitation,shortwave_radiation"
-    + "&hourly=cloud_cover,precipitation&forecast_days=1&timezone=auto";
+    + "&hourly=cloud_cover,precipitation,cloud_cover_low,cloud_cover_mid,cloud_cover_high,visibility"
+    + "&daily=sunset&forecast_days=1&timezone=auto";
   const res = await fetch(url);
   if (!res.ok) throw new Error(res.status === 429 ? "RATE_LIMIT" : "気象API エラー: " + res.status);
   const json = await res.json();
@@ -296,6 +317,49 @@ function judge(lat, lon, here, dirData) {
   r.score = Math.min(Math.round(100 * altFactor * rainFactor * sunFactor), 100);
   r.reason = "条件が揃っています！" + dirName(anti) + "の空を見上げてみて";
   return r;
+}
+
+/* ===== 夕焼けスコア ===== */
+function sunsetScore(here) {
+  const sunsetISO = here.daily?.sunset?.[0];
+  if (!sunsetISO) return null;
+  const sunsetTime = new Date(sunsetISO);
+  const h = here.hourly;
+  let best = 0, bestDiff = Infinity;
+  h.time.forEach((ts, i) => {
+    const diff = Math.abs(new Date(ts) - sunsetTime);
+    if (diff < bestDiff) { bestDiff = diff; best = i; }
+  });
+  const low = h.cloud_cover_low?.[best] ?? 100;
+  const mid = h.cloud_cover_mid?.[best] ?? 0;
+  const high = h.cloud_cover_high?.[best] ?? 0;
+  const vis = h.visibility?.[best] ?? 20000;
+
+  // 西の低空が開けているほど良い（低層雲が太陽そのものを隠してしまう）
+  const clearWest = Math.max(0, 1 - low / 70);
+  // 中・高層雲が30〜50%くらいあると夕焼けが色づきやすい。多すぎると曇り一色に
+  const colorAmount = Math.min(mid + high, 100);
+  const colorFactor = colorAmount <= 50 ? colorAmount / 50 : Math.max(0, 1 - (colorAmount - 50) / 50);
+  const visFactor = Math.min(vis / 20000, 1);
+
+  const score = Math.round(100 * clearWest * (0.35 + 0.65 * colorFactor) * (0.7 + 0.3 * visFactor));
+  let verdict, reason;
+  if (score >= 60) { verdict = "🌇 綺麗な夕焼けになりそう！"; reason = "西の空が開けていて、雲が良いアクセントになりそうです"; }
+  else if (score >= 35) { verdict = "🌤 まずまずの夕焼けが期待できそう"; reason = "条件はそこそこ。西の空に注目してみて"; }
+  else if (low > 70) { verdict = "☁️ 厚い雲で夕焼けは見えにくそう"; reason = "西の低空が雲に覆われています"; }
+  else { verdict = "🌫 今日はあっさりした夕焼けになりそう"; reason = "雲が少なく、色づきは控えめかもしれません"; }
+
+  const now = new Date();
+  const diffMin = Math.round((sunsetTime - now) / 60000);
+  const timeStr = sunsetTime.toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" });
+  let countStr;
+  if (diffMin > 0) {
+    const hh = Math.floor(diffMin / 60), mm = diffMin % 60;
+    countStr = `あと${hh > 0 ? hh + "時間" : ""}${mm}分`;
+  } else {
+    countStr = "本日の日の入りは過ぎました";
+  }
+  return { score, verdict, reason, timeStr, countStr };
 }
 
 /* ===== 今日のチャンス時間帯 ===== */
@@ -389,6 +453,19 @@ async function run() {
     document.getElementById("rainDir").innerHTML = r.rainDir.toFixed(1) + "<small> mm/h</small>";
     document.getElementById("rad").innerHTML = Math.round(r.radiation) + "<small> W/m²</small>";
     document.getElementById("cloud").innerHTML = (r.cloud ?? "—") + "<small> %</small>";
+
+    // 夕焼けスコア
+    const sunset = sunsetScore(here);
+    const sunsetCard = document.getElementById("sunsetCard");
+    if (sunset) {
+      sunsetCard.style.display = "";
+      document.getElementById("sunsetScore").textContent = sunset.score;
+      document.getElementById("sunsetVerdict").textContent = sunset.verdict;
+      document.getElementById("sunsetReason").textContent = sunset.reason;
+      document.getElementById("sunsetTime").textContent = `日の入り ${sunset.timeStr}（${sunset.countStr}）`;
+    } else {
+      sunsetCard.style.display = "none";
+    }
 
     // 今日のチャンス
     const slots = todaySlots(loc.lat, loc.lon, here);
