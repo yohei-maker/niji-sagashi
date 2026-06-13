@@ -504,22 +504,27 @@ function skyFortune(r, sunset, slots) {
   const best = Math.max(rainbowS, sunsetS);
   const usesRainbow = rainbowS >= sunsetS;
   const dir = usesRainbow ? dirName(r.anti) : "西";
-  const what = usesRainbow ? "虹" : "夕焼け";
 
-  let level, title, message;
-  if (best >= 70) {
-    level = "大吉"; title = "✨ 大吉 — 特別な瞬間が待っています";
-    message = `${dir}の空に、見逃せない瞬間が訪れそうです。${what}を探しに外へ出てみて。`;
-  } else if (best >= 45) {
-    level = "中吉"; title = "🌤 中吉 — ちょっとした幸運の予感";
-    message = `${dir}の方角を時々気にしてみると、ちょっと良いことがあるかも。`;
-  } else if (best >= 20) {
-    level = "小吉"; title = "🍃 小吉 — 小さな発見がありそう";
-    message = `今日は焦らず、${dir}の空をふと見上げてみる日。`;
+  // 見えそうな空の風景を、ランクに応じて具体的に描写する
+  let scene;
+  if (usesRainbow) {
+    if (rainbowS >= 70)      scene = `${dir}の空に、くっきりとした虹が架かるかもしれません`;
+    else if (rainbowS >= 45) scene = `${dir}の空に、淡い虹がちらっと顔を出すかもしれません`;
+    else if (rainbowS >= 20) scene = `条件しだいで、${dir}にうっすら虹が見えるかもしれません`;
+    else                     scene = "今日は虹の気配は控えめ。穏やかな空模様です";
   } else {
-    level = "末吉"; title = "🌥 末吉 — 静かな一日。次のチャンスに備えて";
-    message = "今日は穏やかな空模様。次のチャンスに向けて、心の準備をしておきましょう。";
+    if (sunsetS >= 70)      scene = "夕暮れ、空が燃えるような色に染まる夕焼けが見られそうです";
+    else if (sunsetS >= 45) scene = "夕暮れ、やわらかく色づく綺麗な夕焼けが見られそうです";
+    else if (sunsetS >= 20) scene = "夕暮れ、ほんのり色づくささやかな夕焼けになりそうです";
+    else                    scene = "今日はあっさりとした、静かな空模様になりそうです";
   }
+
+  let level, title;
+  if (best >= 70)      { level = "大吉"; title = "✨ 大吉 — 特別な空に出会えそう"; }
+  else if (best >= 45) { level = "中吉"; title = "🌤 中吉 — ちょっと良い空の予感"; }
+  else if (best >= 20) { level = "小吉"; title = "🍃 小吉 — ささやかな空の彩り"; }
+  else                 { level = "末吉"; title = "🌥 末吉 — 静かな空の一日"; }
+  const message = scene + "。";
 
   // 開運の時刻: 今日の虹チャンス時間帯があればその時刻、なければ夕暮れ時
   let time = "—", timeWhy = "";
