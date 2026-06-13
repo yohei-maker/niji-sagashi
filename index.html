@@ -90,6 +90,32 @@
   .fortune-meta { font-size: 12px; margin-top: 12px; display:flex; justify-content:center; gap: 18px; color: var(--ink-dim); }
   .fortune-meta b { color: var(--ink); font-weight: 700; }
 
+  /* 直近予報の先回り通知 */
+  .forecast-note {
+    margin-top: 12px; font-size: 13px; font-weight: 700;
+    padding: 8px 14px; border-radius: 12px;
+    background: rgba(255,209,102,.18); color: #ffd166;
+    border: 1px solid rgba(255,209,102,.3);
+  }
+
+  /* 虹の見え方 */
+  .appear-row { display:flex; align-items:center; gap: 14px; }
+  .appear-size {
+    flex:none; width: 56px; height: 56px; border-radius: 50%;
+    display:flex; align-items:center; justify-content:center;
+    font-size: 17px; font-weight: 800;
+    background: conic-gradient(from 180deg, #fca5a5, #ffd166, #6ee7b7, #7ec8ff, #a78bfa);
+    color: #1a2a4a;
+  }
+  .appear-desc { flex:1; font-size: 13px; line-height: 1.6; }
+  .double { margin-top: 12px; font-size: 12px; font-weight: 700; color:#fca5a5;
+            padding-top: 10px; border-top: 1px solid rgba(255,255,255,.12); }
+
+  /* 撮影のコツ */
+  .photo-tips ul { list-style: none; }
+  .photo-tips li { font-size: 12px; color: var(--ink-dim); padding: 5px 0 5px 20px; position: relative; line-height: 1.5; }
+  .photo-tips li::before { content: "📍"; position: absolute; left: 0; font-size: 11px; }
+
   /* 夕焼けスコア */
   .sunset-row { display:flex; align-items:center; gap: 16px; }
   .sunset-score { font-size: 40px; font-weight: 800; flex: none; width: 64px; text-align:center; }
@@ -152,6 +178,7 @@
       </div>
       <div class="verdict" id="verdict">—</div>
       <div class="reason" id="reason"></div>
+      <div class="forecast-note" id="forecastNote" style="display:none"></div>
     </div>
 
     <div class="card compass-card" id="compassCard">
@@ -183,6 +210,24 @@
         <div class="cell"><div class="k">💡 日射量</div><div class="v" id="rad">—<small> W/m²</small></div></div>
         <div class="cell"><div class="k">☁️ 雲量</div><div class="v" id="cloud">—<small> %</small></div></div>
       </div>
+    </div>
+
+    <div class="card" id="appearanceCard" style="display:none">
+      <h2>🌈 今日の虹の見え方</h2>
+      <div class="appear-row">
+        <div class="appear-size" id="appearSize">—</div>
+        <div class="appear-desc" id="appearDesc"></div>
+      </div>
+      <div class="double" id="doubleRow" style="display:none">✨ 雨が強め — ダブルレインボー（副虹）も期待できそう</div>
+    </div>
+
+    <div class="card photo-tips" id="photoTips" style="display:none">
+      <h2>📸 虹を見つけたら</h2>
+      <ul>
+        <li>太陽を背にして、自分の影が指す方向を見上げる</li>
+        <li>スマホは少し下向きに、広角で弧の全体を狙う</li>
+        <li>露出を少し下げると色が濃く写る</li>
+      </ul>
     </div>
 
     <div class="card" id="sunsetCard" style="display:none">
@@ -301,43 +346,91 @@ function loadCache(loc, maxAgeMin) {
   return null;
 }
 
-function valueAtNow(block, key) {
-  const now = new Date();
+function valueAtBlock(block, key, target) {
   let best = 0, bestDiff = Infinity;
   block.time.forEach((ts, i) => {
-    const diff = Math.abs(new Date(ts) - now);
+    const diff = Math.abs(new Date(ts) - target);
     if (diff < bestDiff) { bestDiff = diff; best = i; }
   });
   return block[key][best] ?? 0;
 }
+const valueAtNow = (block, key) => valueAtBlock(block, key, new Date());
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 
-/* ===== スコア判定 ===== */
-function judge(lat, lon, here, dirData) {
-  const { alt, az } = solarPosition(lat, lon, new Date());
-  const anti = (az + 180) % 360;
-  const r = { sunAlt: alt, sunAz: az, anti, rainDir: 0, radiation: 0, cloud: null, score: 0, reason: "" };
-
-  r.radiation = valueAtNow(here.minutely_15, "shortwave_radiation");
-  r.cloud = valueAtNow(here.hourly, "cloud_cover");
-
-  if (alt <= 0) { r.reason = "いまは夜。虹は太陽が出ている時間のお楽しみ"; return r; }
-  if (alt > 42) { r.reason = "太陽が高すぎる時間帯（42度超）。虹は朝と夕方の現象です"; return r; }
+/* ===== スコアの核（「今」も「未来」も同じ計算式を使う） ===== */
+function scoreCore(alt, rainDir, radiation, cloudSun) {
+  const out = { score: 0, reason: "", sunFactor: 0 };
+  if (alt <= 0) { out.reason = "いまは夜。虹は太陽が出ている時間のお楽しみ"; return out; }
+  if (alt > 42) { out.reason = "太陽が高すぎる時間帯（42度超）。虹は朝と夕方の現象です"; return out; }
   const altFactor = 1.0 - (alt / 42) * 0.3;
 
   const cs = clearsky(alt);
-  const sunFactor = Math.min(r.radiation / Math.max(cs * 0.5, 1), 1.0);
+  let sunFactor = Math.min(radiation / Math.max(cs * 0.5, 1), 1.0);
+  // B: 太陽側に雲が多いと太陽光そのものが遮られる → 減点（雲40%までは無影響、100%で0.3倍）
+  if (cloudSun != null) sunFactor *= clamp(1 - (cloudSun - 40) / 60, 0.3, 1);
+  out.sunFactor = sunFactor;
 
-  const rains = dirData.map(d => valueAtNow(d.minutely_15, "precipitation"));
+  if (rainDir <= 0) { out.reason = "虹方向の空に雨がありません。雨上がりを待ちましょう"; return out; }
+  if (sunFactor < 0.3) { out.reason = "雨はあるけれど日差しが足りません。太陽が顔を出したらチャンス"; return out; }
+
+  const rainFactor = Math.min(rainDir / 2.0, 1.0);
+  out.score = Math.min(Math.round(100 * altFactor * rainFactor * sunFactor), 100);
+  return out;
+}
+
+/* D: 太陽高度から「どんな虹が見えるか」を説明 */
+function describeRainbow(sunAlt) {
+  if (sunAlt < 5)  return { size: "特大", desc: "地平線から立ち上がる、半円に近い大きな虹" };
+  if (sunAlt < 15) return { size: "大",   desc: "空に大きく弧を描く、見ごたえのある虹" };
+  if (sunAlt < 28) return { size: "中",   desc: "ほどよい高さの弧を描く虹" };
+  return { size: "小", desc: "地平線近くに低く現れる、こぢんまりした虹" };
+}
+
+/* ===== スコア判定（現在時刻） ===== */
+function judge(lat, lon, here, antiData, sunData) {
+  const { alt, az } = solarPosition(lat, lon, new Date());
+  const anti = (az + 180) % 360;
+  const r = { sunAlt: alt, sunAz: az, anti, rainDir: 0, radiation: 0, cloud: null, cloudSun: null, score: 0, reason: "" };
+
+  r.radiation = valueAtNow(here.minutely_15, "shortwave_radiation");
+  r.cloud = valueAtNow(here.hourly, "cloud_cover");
+  r.cloudSun = sunData ? valueAtNow(sunData.hourly, "cloud_cover") : null;
+
+  const rains = antiData.map(d => valueAtNow(d.minutely_15, "precipitation"));
   const rainHere = valueAtNow(here.minutely_15, "precipitation");
   r.rainDir = Math.max(...rains, rainHere * 0.5);
 
-  if (r.rainDir <= 0) { r.reason = dirName(anti) + "の空に雨がありません。雨上がりを待ちましょう"; return r; }
-  if (sunFactor < 0.3) { r.reason = "雨はあるけれど日差しが足りません。太陽が顔を出したらチャンス"; return r; }
+  const core = scoreCore(alt, r.rainDir, r.radiation, r.cloudSun);
+  r.score = core.score;
+  r.reason = core.reason;
+  r.sunFactor = core.sunFactor;
+  if (core.score > 0) r.reason = "条件が揃っています！" + dirName(anti) + "の空を見上げてみて";
 
-  const rainFactor = Math.min(r.rainDir / 2.0, 1.0);
-  r.score = Math.min(Math.round(100 * altFactor * rainFactor * sunFactor), 100);
-  r.reason = "条件が揃っています！" + dirName(anti) + "の空を見上げてみて";
+  // D: 虹の見え方（昼間の虹が出うる時間帯のみ）
+  r.appearance = (alt > 0 && alt <= 42) ? describeRainbow(alt) : null;
+  // E: ダブルレインボー（雨が強く日差しも十分なとき副虹も出やすい）
+  r.doubleChance = r.rainDir >= 1.5 && r.sunFactor >= 0.6 && core.score >= 40;
   return r;
+}
+
+/* A: 直近予報で先回り — 15分刻みで1時間先までスコアを計算し、今より良い瞬間を探す */
+function forecastBest(lat, lon, here, antiData, sunData, nowScore) {
+  if (!here.minutely_15) return null;
+  const now = new Date();
+  let best = null;
+  for (const ahead of [15, 30, 45, 60]) {
+    const t = new Date(now.getTime() + ahead * 60000);
+    const sp = solarPosition(lat, lon, t);
+    const rad = valueAtBlock(here.minutely_15, "shortwave_radiation", t);
+    const rainHere = valueAtBlock(here.minutely_15, "precipitation", t);
+    const rains = antiData.map(d => valueAtBlock(d.minutely_15, "precipitation", t));
+    const rainDir = Math.max(...rains, rainHere * 0.5);
+    const cloudSun = sunData ? valueAtBlock(sunData.hourly, "cloud_cover", t) : null;
+    const s = scoreCore(sp.alt, rainDir, rad, cloudSun);
+    if (!best || s.score > best.score) best = { ahead, score: s.score };
+  }
+  // 今より明確に高く、かつ実用的なスコアのときだけ知らせる
+  return (best && best.score >= nowScore + 15 && best.score >= 40) ? best : null;
 }
 
 /* ===== 夕焼けスコア ===== */
@@ -457,8 +550,15 @@ async function run() {
     const loc = await getLocation();
     const sun = solarPosition(loc.lat, loc.lon, new Date());
     const anti = (sun.az + 180) % 360;
-    const pts = [[loc.lat, loc.lon], offsetPoint(loc.lat, loc.lon, anti, 5),
-                 offsetPoint(loc.lat, loc.lon, anti, 15), offsetPoint(loc.lat, loc.lon, anti, 30)];
+    // C: 虹方向を扇形でカバー（正面 8/20km＋左右±25度）＋ B: 太陽側の雲チェック用の点
+    const pts = [
+      [loc.lat, loc.lon],
+      offsetPoint(loc.lat, loc.lon, anti, 8),
+      offsetPoint(loc.lat, loc.lon, anti, 20),
+      offsetPoint(loc.lat, loc.lon, (anti - 25 + 360) % 360, 12),
+      offsetPoint(loc.lat, loc.lon, (anti + 25) % 360, 12),
+      offsetPoint(loc.lat, loc.lon, sun.az, 10)
+    ];
     let data, cacheNote = "";
     const fresh = loadCache(loc, 5);
     if (fresh) {
@@ -482,8 +582,9 @@ async function run() {
         cacheNote = "・保存データ表示中";
       }
     }
-    const here = data[0], dirData = data.slice(1);
-    const r = judge(loc.lat, loc.lon, here, dirData);
+    const here = data[0], antiData = data.slice(1, 5), sunData = data[5];
+    const r = judge(loc.lat, loc.lon, here, antiData, sunData);
+    const fc = forecastBest(loc.lat, loc.lon, here, antiData, sunData, r.score);
 
     // スコアリング
     document.getElementById("score").textContent = r.score;
@@ -493,6 +594,15 @@ async function run() {
                   : "☁️ いまは虹の条件が揃っていません";
     document.getElementById("verdict").textContent = verdict;
     document.getElementById("reason").textContent = r.reason;
+
+    // A: 直近予報の先回り通知
+    const fcEl = document.getElementById("forecastNote");
+    if (fc) {
+      fcEl.style.display = "";
+      fcEl.textContent = `🔮 あと${fc.ahead}分ほどで、より高い虹チャンス（スコア${fc.score}）が訪れそう`;
+    } else {
+      fcEl.style.display = "none";
+    }
 
     // コンパス
     document.getElementById("needle").setAttribute("transform", `rotate(${r.anti} 60 60)`);
@@ -505,6 +615,20 @@ async function run() {
     document.getElementById("rainDir").innerHTML = r.rainDir.toFixed(1) + "<small> mm/h</small>";
     document.getElementById("rad").innerHTML = Math.round(r.radiation) + "<small> W/m²</small>";
     document.getElementById("cloud").innerHTML = (r.cloud ?? "—") + "<small> %</small>";
+
+    // D + E: 虹の見え方・ダブルレインボー
+    const appCard = document.getElementById("appearanceCard");
+    if (r.appearance) {
+      appCard.style.display = "";
+      document.getElementById("appearSize").textContent = r.appearance.size;
+      document.getElementById("appearDesc").textContent = r.appearance.desc;
+      document.getElementById("doubleRow").style.display = r.doubleChance ? "" : "none";
+    } else {
+      appCard.style.display = "none";
+    }
+
+    // F: 撮影のコツ（チャンスがある程度あるときだけ）
+    document.getElementById("photoTips").style.display = r.score >= 40 ? "" : "none";
 
     // 夕焼けスコア
     const sunset = sunsetScore(here);
