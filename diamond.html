@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#1a2a4a">
+<title>💎 ダイヤモンド富士さがし</title>
+<style>
+  :root {
+    --ink: #ffffff;
+    --ink-dim: rgba(255,255,255,.72);
+    --card: rgba(255,255,255,.10);
+    --card-line: rgba(255,255,255,.16);
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body {
+    font-family: -apple-system, "Hiragino Sans", sans-serif;
+    color: var(--ink);
+    min-height: 100vh;
+    background: linear-gradient(170deg, #1a2a4a 0%, #2a4a7a 45%, #c97b4a 100%);
+    background-attachment: fixed;
+    padding: max(16px, env(safe-area-inset-top)) 16px 32px;
+  }
+  .wrap { max-width: 430px; margin: 0 auto; }
+  header { text-align:center; padding: 8px 0 18px; }
+  header h1 { font-size: 22px; font-weight: 700; letter-spacing: .04em; }
+  header p { font-size: 12px; color: var(--ink-dim); margin-top: 4px; }
+
+  .card {
+    background: var(--card);
+    border: 1px solid var(--card-line);
+    border-radius: 20px;
+    padding: 18px;
+    margin-bottom: 14px;
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+  }
+  h2 { font-size: 14px; font-weight: 700; margin: 0 0 10px; }
+
+  .info-row { display:flex; justify-content:space-between; padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,.10); font-size: 13px; }
+  .info-row:last-child { border-bottom: none; }
+  .info-row .k { color: var(--ink-dim); }
+  .info-row .v { font-weight: 700; }
+
+  .candidate { padding: 14px 0; border-bottom: 1px solid rgba(255,255,255,.10); }
+  .candidate:last-child { border-bottom: none; }
+  .candidate .date { font-size: 18px; font-weight: 800; }
+  .candidate .meta { font-size: 12px; color: var(--ink-dim); margin-top: 4px; line-height: 1.6; }
+  .candidate .badge { display:inline-block; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 8px; margin-left: 6px; }
+  .badge.soon { background: rgba(255,209,102,.25); color:#ffd166; }
+  .badge.clear { background: rgba(110,231,183,.22); color:#6ee7b7; }
+  .badge.cloud { background: rgba(255,255,255,.12); color: var(--ink-dim); }
+
+  .empty { font-size: 13px; color: var(--ink-dim); text-align:center; padding: 16px 0; line-height: 1.8; }
+
+  .foot { text-align:center; font-size: 11px; color: var(--ink-dim); margin-top: 6px; line-height: 1.8; }
+  .reload {
+    display:block; width:100%; padding: 14px; margin-top: 4px;
+    border: 1px solid var(--card-line); border-radius: 16px;
+    background: rgba(255,255,255,.14); color: var(--ink);
+    font-size: 15px; font-weight: 700; cursor: pointer;
+    text-align: center; text-decoration: none; box-sizing: border-box;
+    font-family: inherit;
+  }
+  .reload:active { background: rgba(255,255,255,.26); }
+  .loading { text-align:center; padding: 60px 0; font-size: 14px; color: var(--ink-dim); }
+  .spin { display:inline-block; animation: spin 1.6s linear infinite; font-size: 28px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .hidden { display:none; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>💎 ダイヤモンド富士さがし</h1>
+    <p>あなたの場所から、富士山に太陽が重なる日。</p>
+  </header>
+
+  <div id="loading" class="loading"><span class="spin">💎</span><br><br>計算中…</div>
+
+  <div id="main" class="hidden">
+    <div class="card">
+      <h2>📍 あなたの地点と富士山</h2>
+      <div class="info-row"><div class="k">富士山までの距離</div><div class="v" id="dist">—</div></div>
+      <div class="info-row"><div class="k">富士山の方角</div><div class="v" id="bearing">—</div></div>
+      <div class="info-row"><div class="k">山頂の見える高さ</div><div class="v" id="appAlt">—</div></div>
+    </div>
+
+    <div class="card">
+      <h2>💎 ダイヤモンド富士の候補日</h2>
+      <div id="candidates"></div>
+    </div>
+
+    <button class="reload" onclick="run()">🔄 もう一度計算</button>
+    <a class="reload" style="margin-top:10px" href="index.html">🌈 虹さがしに戻る</a>
+    <div class="foot" id="foot"></div>
+  </div>
+</div>
+
+<script>
+"use strict";
+
+/* ===== 太陽位置（NOAA式） ===== */
+function solarPosition(lat, lon, date) {
+  const rad = Math.PI / 180;
+  let y = date.getUTCFullYear(), m = date.getUTCMonth() + 1;
+  const d = date.getUTCDate() + (date.getUTCHours() + date.getUTCMinutes()/60 + date.getUTCSeconds()/3600) / 24;
+  if (m <= 2) { y -= 1; m += 12; }
+  const a = Math.floor(y / 100), b = 2 - a + Math.floor(a / 4);
+  const jd = Math.floor(365.25 * (y + 4716)) + Math.floor(30.6001 * (m + 1)) + d + b - 1524.5;
+  const t = (jd - 2451545.0) / 36525.0;
+
+  const l0 = (280.46646 + t * (36000.76983 + 0.0003032 * t)) % 360;
+  const ma = 357.52911 + t * (35999.05029 - 0.0001537 * t);
+  const mr = ma * rad;
+  const c = Math.sin(mr) * (1.914602 - t * (0.004817 + 0.000014 * t))
+          + Math.sin(2*mr) * (0.019993 - 0.000101 * t)
+          + Math.sin(3*mr) * 0.000289;
+  const trueLong = l0 + c;
+  const omega = 125.04 - 1934.136 * t;
+  const appLong = trueLong - 0.00569 - 0.00478 * Math.sin(omega * rad);
+  const e0 = 23 + (26 + (21.448 - t * (46.815 + t * (0.00059 - t * 0.001813))) / 60) / 60;
+  const eps = e0 + 0.00256 * Math.cos(omega * rad);
+  const decl = Math.asin(Math.sin(eps*rad) * Math.sin(appLong*rad)) / rad;
+
+  const varY = Math.tan((eps/2)*rad) ** 2;
+  const ecc = 0.016708634 - t * (0.000042037 + 0.0000001267 * t);
+  const l0r = l0 * rad;
+  const eqtime = 4 / rad * (
+    varY * Math.sin(2*l0r) - 2*ecc*Math.sin(mr)
+    + 4*ecc*varY*Math.sin(mr)*Math.cos(2*l0r)
+    - 0.5*varY*varY*Math.sin(4*l0r) - 1.25*ecc*ecc*Math.sin(2*mr));
+
+  const minutes = date.getUTCHours()*60 + date.getUTCMinutes() + date.getUTCSeconds()/60;
+  const tst = (((minutes + eqtime + 4*lon) % 1440) + 1440) % 1440;
+  let ha = tst/4 - 180;
+  if (ha < -180) ha += 360;
+
+  const latr = lat*rad, declr = decl*rad, har = ha*rad;
+  const sinAlt = Math.sin(latr)*Math.sin(declr) + Math.cos(latr)*Math.cos(declr)*Math.cos(har);
+  const alt = Math.asin(Math.max(-1, Math.min(1, sinAlt))) / rad;
+  const cosAz = (Math.sin(declr) - Math.sin(latr)*sinAlt) / (Math.cos(latr)*Math.cos(alt*rad));
+  let az = Math.acos(Math.max(-1, Math.min(1, cosAz))) / rad;
+  if (ha > 0) az = 360 - az;
+  return { alt, az };
+}
+
+const DIRS = ["北","北北東","北東","東北東","東","東南東","南東","南南東","南","南南西","南西","西南西","西","西北西","北西","北北西"];
+const dirName = deg => DIRS[Math.floor(((deg + 11.25) % 360) / 22.5)];
+
+/* ===== 富士山との位置関係 ===== */
+const FUJI = { lat: 35.3606, lon: 138.7274, elevM: 3776 };
+
+function distBearing(lat1, lon1, lat2, lon2) {
+  const R = 6371, rad = Math.PI/180;
+  const dLat = (lat2-lat1)*rad, dLon = (lon2-lon1)*rad;
+  const a = Math.sin(dLat/2)**2 + Math.cos(lat1*rad)*Math.cos(lat2*rad)*Math.sin(dLon/2)**2;
+  const dist = 2*R*Math.asin(Math.sqrt(a));
+  const y = Math.sin(dLon)*Math.cos(lat2*rad);
+  const x = Math.cos(lat1*rad)*Math.sin(lat2*rad) - Math.sin(lat1*rad)*Math.cos(lat2*rad)*Math.cos(dLon);
+  const bearing = (Math.atan2(y,x)*180/Math.PI + 360) % 360;
+  return { dist, bearing };
+}
+
+// 地球の曲率を考慮した、山頂が見える仰角
+function apparentAlt(distKm) {
+  const dropM = (distKm*1000)**2 / (2*6371000);
+  const h = FUJI.elevM - dropM;
+  if (h <= 0) return null;
+  return Math.atan2(h, distKm*1000) * 180/Math.PI;
+}
+
+/* ===== ダイヤモンド富士の候補日を探す ===== */
+function findDiamondDays(lat, lon, daysAhead = 60) {
+  const { dist, bearing } = distBearing(lat, lon, FUJI.lat, FUJI.lon);
+  const targetAlt = apparentAlt(dist);
+  const out = { dist, bearing, targetAlt, candidates: [] };
+  if (targetAlt === null || dist > 300 || dist < 2) return out;
+
+  const today = new Date();
+  const raw = [];
+  for (let d = 0; d <= daysAhead; d++) {
+    const base = new Date(today.getFullYear(), today.getMonth(), today.getDate() + d);
+    for (const [h0, h1] of [[4, 9], [15, 20]]) {
+      let prevDiff = null, prevAz = null, prevTime = null;
+      for (let m = h0 * 60; m <= h1 * 60; m += 2) {
+        const t = new Date(base.getFullYear(), base.getMonth(), base.getDate(), 0, m);
+        const sp = solarPosition(lat, lon, t);
+        const diff = sp.alt - targetAlt;
+        if (prevDiff !== null && Math.sign(diff) !== Math.sign(prevDiff) && prevDiff !== 0) {
+          const frac = prevDiff / (prevDiff - diff);
+          const az = prevAz + frac * (sp.az - prevAz);
+          const crossTime = new Date(prevTime.getTime() + frac * (t.getTime() - prevTime.getTime()));
+          let azDiff = az - bearing;
+          azDiff = ((azDiff + 180) % 360) - 180;
+          raw.push({ date: base, time: crossTime, azDiff: Math.abs(azDiff) });
+        }
+        prevDiff = diff; prevAz = sp.az; prevTime = t;
+      }
+    }
+  }
+
+  // 方角のずれが小さい日だけ採用し、近い日付はまとめて一番ズレが小さい日を残す
+  const good = raw.filter(r => r.azDiff < 1.5).sort((a, b) => a.date - b.date);
+  for (const r of good) {
+    const last = out.candidates[out.candidates.length - 1];
+    if (last && (r.date - last.date) <= 3 * 86400000) {
+      if (r.azDiff < last.azDiff) out.candidates[out.candidates.length - 1] = r;
+    } else {
+      out.candidates.push(r);
+    }
+  }
+  return out;
+}
+
+/* ===== 位置情報 ===== */
+function getLocation() {
+  return new Promise(resolve => {
+    if (!navigator.geolocation) return resolve({ lat: 35.1815, lon: 136.9060, src: "既定(名古屋)" });
+    navigator.geolocation.getCurrentPosition(
+      pos => resolve({ lat: pos.coords.latitude, lon: pos.coords.longitude, src: "現在地" }),
+      ()  => resolve({ lat: 35.1815, lon: 136.9060, src: "既定(名古屋)" }),
+      { timeout: 8000, maximumAge: 600000 }
+    );
+  });
+}
+
+/* APIレート制限対策: 7日分の雲量予報をキャッシュして再利用 */
+const CACHE_KEY = "diamond_weather_cache_v1";
+function loadWeatherCache(loc, maxAgeMin) {
+  try {
+    const c = JSON.parse(localStorage.getItem(CACHE_KEY));
+    if (c && Date.now() - c.t < maxAgeMin * 60 * 1000
+        && Math.abs(c.lat - loc.lat) < 0.05 && Math.abs(c.lon - loc.lon) < 0.05) return c.data;
+  } catch (e) {}
+  return null;
+}
+async function fetchWeekCloud(loc) {
+  const cached = loadWeatherCache(loc, 180); // 3時間キャッシュ
+  if (cached) return cached;
+  try {
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${loc.lat.toFixed(4)}&longitude=${loc.lon.toFixed(4)}`
+      + `&daily=cloud_cover_mean&forecast_days=7&timezone=auto`;
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    const json = await res.json();
+    try { localStorage.setItem(CACHE_KEY, JSON.stringify({ t: Date.now(), lat: loc.lat, lon: loc.lon, data: json })); } catch (e) {}
+    return json;
+  } catch (e) { return null; }
+}
+
+function fmtDate(d) {
+  const w = ["日","月","火","水","木","金","土"][d.getDay()];
+  return `${d.getMonth()+1}月${d.getDate()}日(${w})`;
+}
+
+/* ===== 画面更新 ===== */
+async function run() {
+  document.getElementById("loading").classList.remove("hidden");
+  document.getElementById("main").classList.add("hidden");
+  try {
+    const loc = await getLocation();
+    const { dist, bearing, targetAlt, candidates } = findDiamondDays(loc.lat, loc.lon);
+
+    document.getElementById("dist").textContent = dist.toFixed(1) + " km";
+    document.getElementById("bearing").textContent = `${dirName(bearing)}（${Math.round(bearing)}度）`;
+    document.getElementById("appAlt").textContent = targetAlt === null
+      ? "見えません（地球の裏側）"
+      : targetAlt.toFixed(2) + " 度";
+
+    const el = document.getElementById("candidates");
+    if (targetAlt === null || dist > 300) {
+      el.innerHTML = '<div class="empty">この場所からは富士山が見える距離ではないか、<br>遠すぎてダイヤモンド富士の判定ができません。<br>富士山がよく見える場所で試してみてください。</div>';
+    } else if (candidates.length === 0) {
+      el.innerHTML = '<div class="empty">この場所からは、向き（方角）が合わず<br>ダイヤモンド富士は期待しにくそうです。<br>富士山の方角に太陽が沈む/昇る場所を探してみて。</div>';
+    } else {
+      let weather = null;
+      const first = candidates[0];
+      const daysUntilFirst = Math.round((first.date - new Date(new Date().setHours(0,0,0,0))) / 86400000);
+      if (daysUntilFirst >= 0 && daysUntilFirst <= 6) {
+        weather = await fetchWeekCloud(loc);
+      }
+
+      el.innerHTML = candidates.slice(0, 4).map(c => {
+        const daysUntil = Math.round((c.date - new Date(new Date().setHours(0,0,0,0))) / 86400000);
+        const timeStr = c.time.toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" });
+        const winName = c.time.getHours() < 12 ? "日の出" : "日の入り";
+        let badge = "";
+        if (daysUntil === 0) badge = '<span class="badge soon">今日！</span>';
+        else if (daysUntil === 1) badge = '<span class="badge soon">明日</span>';
+        if (weather && daysUntil >= 0 && daysUntil <= 6 && weather.daily?.cloud_cover_mean) {
+          const cc = weather.daily.cloud_cover_mean[daysUntil];
+          if (cc != null) {
+            badge += cc < 40
+              ? '<span class="badge clear">☀️ 晴れ予報</span>'
+              : cc < 75 ? '<span class="badge cloud">🌤 雲多め</span>' : '<span class="badge cloud">☁️ 厚い雲</span>';
+          }
+        }
+        return `<div class="candidate">
+          <div class="date">${fmtDate(c.date)} ${badge}</div>
+          <div class="meta">${winName} 頃（推定 ${timeStr}）・方角のズレ ${c.azDiff.toFixed(1)}度</div>
+        </div>`;
+      }).join("");
+    }
+
+    document.getElementById("foot").textContent =
+      `📍 ${loc.src} (${loc.lat.toFixed(2)}, ${loc.lon.toFixed(2)}) ・ 富士山頂: 35.3606, 138.7274 を基準に計算`;
+
+    document.getElementById("loading").classList.add("hidden");
+    document.getElementById("main").classList.remove("hidden");
+  } catch (e) {
+    document.getElementById("loading").innerHTML = "⚠️ 計算に失敗しました<br><br>" + e.message
+      + '<br><br><button class="reload" onclick="run()">再試行</button>';
+  }
+}
+run();
+</script>
+</body>
+</html>
