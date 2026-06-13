@@ -135,19 +135,33 @@
   }
   .reload:active { background: rgba(255,255,255,.26); }
   .loading { text-align:center; padding: 60px 0; font-size: 14px; color: var(--ink-dim); }
-  .spin { display:inline-block; animation: spin 1.6s linear infinite; font-size: 28px; }
   @keyframes spin { to { transform: rotate(360deg); } }
+  /* 虹色リングのローダー */
+  .rainbow-loader {
+    width: 60px; height: 60px; margin: 0 auto 22px; border-radius: 50%;
+    background: conic-gradient(#ff5e5e, #ffb84d, #ffe24d, #5ee06b, #4dc3ff, #7b6bff, #c46bff, #ff5e5e);
+    -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 8px), #000 calc(100% - 7px));
+    mask: radial-gradient(farthest-side, transparent calc(100% - 8px), #000 calc(100% - 7px));
+    animation: spin 1.05s linear infinite;
+  }
+  /* ヘッダーの虹ロゴ */
+  .logo { width: 30px; height: auto; vertical-align: -4px; margin-right: 4px; }
   .hidden { display:none; }
 </style>
 </head>
 <body>
 <div class="wrap">
   <header>
-    <h1>🌈 虹さがし</h1>
+    <h1><svg class="logo" viewBox="0 0 48 28" fill="none" stroke-linecap="round" aria-hidden="true">
+      <path d="M5 26 A19 19 0 0 1 43 26" stroke="#ff6b6b" stroke-width="3"/>
+      <path d="M9.5 26 A14.5 14.5 0 0 1 38.5 26" stroke="#ffc24d" stroke-width="3"/>
+      <path d="M14 26 A10 10 0 0 1 34 26" stroke="#5ee06b" stroke-width="3"/>
+      <path d="M18.5 26 A5.5 5.5 0 0 1 29.5 26" stroke="#4db8ff" stroke-width="3"/>
+    </svg>虹さがし</h1>
     <p>天気を、体験に変える。</p>
   </header>
 
-  <div id="loading" class="loading"><span class="spin">🌈</span><br><br>空を解析中…</div>
+  <div id="loading" class="loading"><div class="rainbow-loader"></div>空を解析中…</div>
 
   <div id="main" class="hidden">
 
