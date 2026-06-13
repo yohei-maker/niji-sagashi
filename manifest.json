@@ -1,0 +1,13 @@
+{
+  "name": "虹さがし",
+  "short_name": "虹さがし",
+  "description": "天気を、体験に変える。虹・夕焼け・ダイヤモンド富士を予測する空さがしアプリ。",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#1a2a4a",
+  "theme_color": "#1a2a4a",
+  "icons": [
+    { "src": "icon-180.png", "sizes": "180x180", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}
