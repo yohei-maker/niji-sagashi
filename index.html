@@ -95,6 +95,7 @@
   .fortune-msg { font-size: 13px; color: var(--ink-dim); margin-top: 8px; line-height: 1.7; }
   .fortune-meta { font-size: 12px; margin-top: 12px; display:flex; justify-content:center; gap: 18px; color: var(--ink-dim); }
   .fortune-meta b { color: var(--ink); font-weight: 700; }
+  .fortune-why { font-size: 11px; color: var(--ink-dim); margin-top: 8px; line-height: 1.5; }
 
   /* 直近予報の先回り通知 */
   .forecast-note {
@@ -178,6 +179,7 @@
         <span>🧭 ラッキー方向 <b id="fortuneDir">—</b></span>
         <span>🕐 開運の時刻 <b id="fortuneTime">—</b></span>
       </div>
+      <div class="fortune-why" id="fortuneWhy"></div>
     </div>
 
     <div class="card score-wrap">
@@ -520,11 +522,16 @@ function skyFortune(r, sunset, slots) {
   }
 
   // 開運の時刻: 今日の虹チャンス時間帯があればその時刻、なければ夕暮れ時
-  let time = "—";
-  if (slots && slots.length > 0) time = slots[0].time;
-  else if (sunset) time = sunset.timeStr;
+  let time = "—", timeWhy = "";
+  if (slots && slots.length > 0) {
+    time = slots[0].time;
+    timeWhy = "雨と日差しが重なり、虹が出やすい時間帯";
+  } else if (sunset) {
+    time = sunset.timeStr;
+    timeWhy = "日の入り前後、空がいちばん色づく黄金の時間";
+  }
 
-  return { level, title, message, dir, time };
+  return { level, title, message, dir, time, timeWhy };
 }
 
 /* ===== 今日のチャンス時間帯 ===== */
@@ -679,6 +686,9 @@ async function run() {
     document.getElementById("fortuneMsg").textContent = fortune.message;
     document.getElementById("fortuneDir").textContent = fortune.dir;
     document.getElementById("fortuneTime").textContent = fortune.time;
+    document.getElementById("fortuneWhy").textContent = fortune.timeWhy
+      ? `🕐 ${fortune.time} は${fortune.timeWhy}。この時間に空を見上げてみて。`
+      : "";
 
     document.getElementById("foot").textContent =
       `📍 ${loc.src} (${loc.lat.toFixed(2)}, ${loc.lon.toFixed(2)}) ・ ${new Date().toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"})} 更新${cacheNote} ・ データ: Open-Meteo`;
