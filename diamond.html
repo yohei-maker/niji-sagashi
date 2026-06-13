@@ -163,12 +163,16 @@ function distBearing(lat1, lon1, lat2, lon2) {
   return { dist, bearing };
 }
 
-// 地球の曲率を考慮した、山頂が見える仰角
+// 地平線付近の大気差補正（標準値0.57度）。太陽は実際の位置より高く見えるため、
+// 太陽の「見かけ」が山頂に重なる時の幾何学的な高度はその分低くなる
+const REFRACTION = 0.57;
+
+// 地球の曲率を考慮した、山頂が見える仰角（大気差補正済み）
 function apparentAlt(distKm) {
   const dropM = (distKm*1000)**2 / (2*6371000);
   const h = FUJI.elevM - dropM;
   if (h <= 0) return null;
-  return Math.atan2(h, distKm*1000) * 180/Math.PI;
+  return Math.atan2(h, distKm*1000) * 180/Math.PI - REFRACTION;
 }
 
 /* ===== ダイヤモンド富士の候補日を探す ===== */
