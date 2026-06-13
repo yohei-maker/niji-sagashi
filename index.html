@@ -79,6 +79,17 @@
   .slot .d { font-size: 14px; font-weight: 700; }
   .empty { font-size: 13px; color: var(--ink-dim); text-align:center; padding: 12px 0; line-height: 1.7; }
 
+  /* 今日の空のお告げ */
+  .fortune-card {
+    text-align:center; padding: 22px 18px;
+    background: linear-gradient(135deg, rgba(255,209,102,.16), rgba(167,139,250,.14));
+    border: 1px solid rgba(255,255,255,.22);
+  }
+  .fortune-title { font-size: 17px; font-weight: 800; }
+  .fortune-msg { font-size: 13px; color: var(--ink-dim); margin-top: 8px; line-height: 1.7; }
+  .fortune-meta { font-size: 12px; margin-top: 12px; display:flex; justify-content:center; gap: 18px; color: var(--ink-dim); }
+  .fortune-meta b { color: var(--ink); font-weight: 700; }
+
   /* 夕焼けスコア */
   .sunset-row { display:flex; align-items:center; gap: 16px; }
   .sunset-score { font-size: 40px; font-weight: 800; flex: none; width: 64px; text-align:center; }
@@ -113,6 +124,15 @@
   <div id="loading" class="loading"><span class="spin">🌈</span><br><br>空を解析中…</div>
 
   <div id="main" class="hidden">
+
+    <div class="card fortune-card" id="fortuneCard">
+      <div class="fortune-title" id="fortuneTitle">—</div>
+      <div class="fortune-msg" id="fortuneMsg"></div>
+      <div class="fortune-meta">
+        <span>🧭 ラッキー方向 <b id="fortuneDir">—</b></span>
+        <span>🎨 ラッキーカラー <b id="fortuneColor">—</b></span>
+      </div>
+    </div>
 
     <div class="card score-wrap">
       <div class="ring">
@@ -363,6 +383,36 @@ function sunsetScore(here) {
   return { score, verdict, reason, timeStr, countStr };
 }
 
+/* ===== 今日の空のお告げ ===== */
+function skyFortune(r, sunset) {
+  const rainbowS = r.score, sunsetS = sunset ? sunset.score : 0;
+  const best = Math.max(rainbowS, sunsetS);
+  const usesRainbow = rainbowS >= sunsetS;
+  const dir = usesRainbow ? dirName(r.anti) : "西";
+  const what = usesRainbow ? "虹" : "夕焼け";
+
+  let level, title, message;
+  if (best >= 70) {
+    level = "大吉"; title = "✨ 大吉 — 特別な瞬間が待っています";
+    message = `${dir}の空に、見逃せない瞬間が訪れそうです。${what}を探しに外へ出てみて。`;
+  } else if (best >= 45) {
+    level = "中吉"; title = "🌤 中吉 — ちょっとした幸運の予感";
+    message = `${dir}の方角を時々気にしてみると、ちょっと良いことがあるかも。`;
+  } else if (best >= 20) {
+    level = "小吉"; title = "🍃 小吉 — 小さな発見がありそう";
+    message = `今日は焦らず、${dir}の空をふと見上げてみる日。`;
+  } else {
+    level = "末吉"; title = "🌥 末吉 — 静かな一日。次のチャンスに備えて";
+    message = "今日は穏やかな空模様。次のチャンスに向けて、心の準備をしておきましょう。";
+  }
+
+  const luckyColors = ["金色", "紫", "水色", "オレンジ", "ピンク", "エメラルド", "ラベンダー", "深紅"];
+  const seed = new Date().toDateString().split("").reduce((a, c) => a + c.charCodeAt(0), 0) + Math.round(best);
+  const color = luckyColors[seed % luckyColors.length];
+
+  return { level, title, message, dir, color };
+}
+
 /* ===== 今日のチャンス時間帯 ===== */
 function todaySlots(lat, lon, here) {
   const out = [];
@@ -457,6 +507,14 @@ async function run() {
 
     // 夕焼けスコア
     const sunset = sunsetScore(here);
+
+    // 今日の空のお告げ（虹・夕焼けスコアを合わせて判定）
+    const fortune = skyFortune(r, sunset);
+    document.getElementById("fortuneTitle").textContent = fortune.title;
+    document.getElementById("fortuneMsg").textContent = fortune.message;
+    document.getElementById("fortuneDir").textContent = fortune.dir;
+    document.getElementById("fortuneColor").textContent = fortune.color;
+
     const sunsetCard = document.getElementById("sunsetCard");
     if (sunset) {
       sunsetCard.style.display = "";
